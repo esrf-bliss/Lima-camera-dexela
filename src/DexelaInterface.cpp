@@ -28,7 +28,9 @@
 #include <libconfig.h++>
 #include <NativeApi.h>
 
-
+static const int NB_MAX_BUFFER = 16;
+static const int NB_MAX_PREFETCH_BUFFER = 1;
+static const double MAX_STOP_TIME = 3.;
 
 using namespace lima;
 using namespace lima::Dexela;
@@ -281,8 +283,8 @@ void Interface::_load_config_file(const std::string& dataBasePath,
 	  if(!sensorConfig.lookupValue("sensorFormat",sensorFormat))
 	    THROW_HW_ERROR(Error) << "Field sensorFormat must be in detector configuration";
 	  
-	  sensor_desc.imageBufferX = sensor_desc.sensorX * sensor_desc.sensorsH;
-	  sensor_desc.imageBufferY = sensor_desc.sensorY * sensor_desc.sensorsV;
+	  sensor_desc.imageBufferX = sensor_desc.sensorX * sensor_desc.sensorsV;
+	  sensor_desc.imageBufferY = sensor_desc.sensorY * sensor_desc.sensorsH;
 	}
     }
   if(!found)
@@ -330,10 +332,25 @@ void Interface::_AcqThread::threadFunction()
       int raw_buffer_size = imageXdim() * imageYdim();
       int nb_frames_to_acq;
       m_interface.m_sync->getNbHwFrames(nb_frames_to_acq);
+      double expo_time;
+      m_interface.m_sync->getExpTime(expo_time);
 
-      int bufferId = 1;
+      int bufferId = 0;
+      int expectedBufferId = 1;
+      int nbBufferPrefetch = int(MAX_STOP_TIME / expo_time);
+      if(nbBufferPrefetch < 1) 
+	nbBufferPrefetch = 1;
+      else if(nbBufferPrefetch > NB_MAX_PREFETCH_BUFFER)
+	nbBufferPrefetch = NB_MAX_PREFETCH_BUFFER;
+
+      if(nbBufferPrefetch > nb_frames_to_acq)
+	nbBufferPrefetch = nb_frames_to_acq;
+
       bool continueFlag = true;
-      int intRetCode = Snap(1,bufferId,1);
+      // Prefetch images
+      for(int i = 0;i < nbBufferPrefetch;++i)
+	Snap(1,++bufferId,1);
+
       m_interface.m_cond.broadcast();
       aLock.unlock();
 
@@ -352,15 +369,17 @@ void Interface::_AcqThread::threadFunction()
 	    case WAIT_OBJECT_0 + 1:
 	      {
 		int capBuf = GetCapturedBuffer();
-		if(++bufferId > 16) bufferId = 1;
+		if(capBuf != expectedBufferId) break;
+		if(++bufferId > NB_MAX_BUFFER) bufferId = 1;
+		if(++expectedBufferId > NB_MAX_BUFFER) expectedBufferId = 1;
 		aLock.lock();
 		++m_interface.m_acq_frame_nb;
 		int frame_number = m_interface.m_acq_frame_nb;
 		aLock.unlock();
-		if((nb_frames_to_acq - 1) > frame_number)
+		if((nb_frames_to_acq - 1) > (frame_number - nbBufferPrefetch))
 		  Snap(1,bufferId,1);
-		else
-		  continueFlag = false;
+
+		continueFlag = (nb_frames_to_acq - 1) > frame_number;
 
 		byte* pMem = (byte*)m_interface.m_tmp_buffer;
 		pMem += (capBuf - 1) * raw_buffer_size;
