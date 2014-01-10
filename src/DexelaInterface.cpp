@@ -80,7 +80,7 @@ Interface::Interface(const std::string& dataBasePath,
   if(error != SUCCESS)
     THROW_HW_ERROR(Error) << "Can't set default exposure";
 
-  error = ::SetFullWellMode(::High);
+  error = ::SetFullWellMode(::Low);
   if(error != SUCCESS)
     THROW_HW_ERROR(Error) << "Can't set the full well mode";
 
@@ -137,6 +137,11 @@ void Interface::getCapList(CapList &cap_list) const
 
 void Interface::reset(ResetLevel reset_level)
 {
+  DEB_MEMBER_FUNCT();
+
+  Derr error = SoftReset();
+  if(error != SUCCESS)
+    THROW_HW_ERROR(Error) << "Could not set exposure mode to Frame Rate";
 }
 
 void Interface::prepareAcq()
