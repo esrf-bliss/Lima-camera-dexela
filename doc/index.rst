@@ -1,5 +1,7 @@
-Dexela
-----------
+.. _camera-dexela:
+
+Dexela camera plugin
+---------------------
 
 .. image:: Dexela.jpg 
 
