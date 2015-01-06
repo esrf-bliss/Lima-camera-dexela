@@ -21,9 +21,9 @@
 //###########################################################################
 #ifndef DEXELAINTERFACE_H
 #define DEXELAINTERFACE_H
-#include "Debug.h"
+#include "lima/Debug.h"
 #include "DexelaCompatibility.h"
-#include "HwInterface.h"
+#include "lima/HwInterface.h"
 
 typedef struct SensorDescription SensorDesc;
 

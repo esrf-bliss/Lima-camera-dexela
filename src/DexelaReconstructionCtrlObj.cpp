@@ -20,7 +20,7 @@
 // along with this program; if not, see <http://www.gnu.org/licenses/>.
 //###########################################################################
 #include "DexelaReconstructionCtrlObj.h"
-#include <LinkTask.h>
+#include "processlib/LinkTask.h"
 #include <NativeApi.h>
 
 using namespace lima;

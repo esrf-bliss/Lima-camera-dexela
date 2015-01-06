@@ -22,7 +22,7 @@
 #ifndef DEXELABINCTRLOBJ_H
 #define DEXELABINCTRLOBJ_H
 #include "DexelaCompatibility.h"
-#include "HwBinCtrlObj.h"
+#include "lima/HwBinCtrlObj.h"
 #include "DexelaInterface.h"
 
 namespace lima

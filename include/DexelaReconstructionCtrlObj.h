@@ -22,7 +22,7 @@
 #ifndef DEXELARECONSTRUCTIONCTRLOBJ_H
 #define DEXELARECONSTRUCTIONCTRLOBJ_H
 #include "DexelaCompatibility.h"
-#include "HwReconstructionCtrlObj.h"
+#include "lima/HwReconstructionCtrlObj.h"
 
 #include "DexelaInterface.h"
 

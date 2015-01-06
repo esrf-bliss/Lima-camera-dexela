@@ -22,7 +22,7 @@
 #ifndef DEXELASYNCCTRLOBJ_H
 #define DEXELASYNCCTRLOBJ_H
 #include "DexelaCompatibility.h"
-#include "HwSyncCtrlObj.h"
+#include "lima/HwSyncCtrlObj.h"
 
 #include "DexelaInterface.h"
 namespace lima

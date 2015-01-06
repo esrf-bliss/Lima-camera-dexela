@@ -22,7 +22,7 @@
 #ifndef DEXELADETINFO_H
 #define DEXELADETINFO_H
 #include "DexelaCompatibility.h"
-#include "HwDetInfoCtrlObj.h"
+#include "lima/HwDetInfoCtrlObj.h"
 
 namespace lima
 {
