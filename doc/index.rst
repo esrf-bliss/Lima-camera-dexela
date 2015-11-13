@@ -145,12 +145,12 @@ For a quick test one can use python, is this a short code example:
   import time
 
   hwint = Dexela.Interface('c:\DexelaConfig.cfg','sensor2923')
-  control = Core.CtControl(hwint)
+  ct = Core.CtControl(hwint)
 
-  acq = control.acquisition()
+  acq = ct.acquisition()
 
   # setting new file parameters and autosaving mode
-  saving=control.saving()
+  saving=ct.saving()
 
   pars=saving.getParameters()
   pars.directory='/tmp/'
@@ -165,17 +165,17 @@ For a quick test one can use python, is this a short code example:
   acq.setAcqExpoTime(2)
   acq.setNbImages(10) 
   
-  acq.prepareAcq()
-  acq.startAcq()
+  ct.prepareAcq()
+  ct.startAcq()
 
   # wait for last image (#9) ready
-  lastimg = control.getStatus().ImageCounters.LastImageReady
+  lastimg = ct.getStatus().ImageCounters.LastImageReady
   while lastimg !=9:
     time.sleep(1)
-    lastimg = control.getStatus().ImageCounters.LastImageReady
+    lastimg = ct.getStatus().ImageCounters.LastImageReady
  
   # read a image
-  im0 = control.ReadImage(0)
+  im0 = ct.ReadImage(0)
   
 
   
