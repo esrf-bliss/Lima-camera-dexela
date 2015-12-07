@@ -21,16 +21,17 @@
 //###########################################################################
 #include "DexelaDetInfoCtrlObj.h"
 #include "DexelaInterface.h"
-#include <NativeApi.h>
+#include <dexela/dexela_api.h>
 
 using namespace lima;
 using namespace lima::Dexela;
-DetInfoCtrlObj::DetInfoCtrlObj(const std::string& detectorModel,
-			       int max_rows,int max_columns) :
-  m_detector_model(detectorModel),
-  m_max_rows(max_rows),
-  m_max_columns(max_columns)
+DetInfoCtrlObj::DetInfoCtrlObj()
 {
+  gchar* tmp_model = dexela_get_model();
+  m_model_str = tmp_model;
+  m_model = atoi(tmp_model);
+  g_free(tmp_model);
+
 }
 
 DetInfoCtrlObj::~DetInfoCtrlObj()
@@ -39,7 +40,18 @@ DetInfoCtrlObj::~DetInfoCtrlObj()
 
 void DetInfoCtrlObj::getMaxImageSize(Size& max_image_size)
 {
-  max_image_size = Size(m_max_columns,m_max_rows);
+  DEB_MEMBER_FUNCT();
+  switch(m_model)
+    {
+    case 1512:
+      max_image_size = Size(1536,1944);break;
+    case 1207:
+      max_image_size = Size(1536,864);break;
+   case 2923:
+      max_image_size = Size(3072,3888);break;
+    default:
+      THROW_HW_ERROR(NotSupported) << "detector not supported yet;)";
+    }
 }
 
 void DetInfoCtrlObj::getDetectorImageSize(Size& det_image_size)
@@ -82,7 +94,7 @@ void DetInfoCtrlObj::getDetectorType(std::string& det_type)
 
 void DetInfoCtrlObj::getDetectorModel(std::string& det_model)
 {
-  det_model = m_detector_model;
+  det_model = m_model_str;
 }
 
 void DetInfoCtrlObj::registerMaxImageSizeCallback(HwMaxImageSizeCallback& cb)

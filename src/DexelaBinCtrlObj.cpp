@@ -20,7 +20,7 @@
 // along with this program; if not, see <http://www.gnu.org/licenses/>.
 //###########################################################################
 #include "DexelaBinCtrlObj.h"
-#include <NativeApi.h>
+#include <dexela/dexela_api.h>
 
 using namespace lima;
 using namespace lima::Dexela;
@@ -40,66 +40,16 @@ void BinCtrlObj::setBin(const Bin& bin)
 
   int x = bin.getX();
   int y = bin.getY();
-
-  bins hwBin;
-  switch(x)
-    {
-    case 1:
-      switch(y)
-	{
-	case 1: hwBin = x11;break;
-	case 2: hwBin = x12;break;
-	case 4: hwBin = x14;break;
-	default:
-	  THROW_HW_ERROR(InvalidValue) << "Hardware bin can be 1,2 or 4";
-	}
-      break;
-    case 2:
-      switch(y)
-	{
-	case 1: hwBin = x21;break;
-	case 2: hwBin = x22;break;
-	case 4: hwBin = x24;break;
-	default:
-	  THROW_HW_ERROR(InvalidValue) << "Hardware bin can be 1,2 or 4";
-	}
-      break;
-    case 4:
-      switch(y)
-	{
-	case 1: hwBin = x41;break;
-	case 2: hwBin = x42;break;
-	case 4: hwBin = x44;break;
-	default:
-	  THROW_HW_ERROR(InvalidValue) << "Hardware bin can be 1,2 or 4";
-	}
-      break;
-    default:
-      THROW_HW_ERROR(InvalidValue) << "Hardware bin can be 1,2 or 4";
-    }
-
-  ::SetBinningMode(hwBin);
+  if(dexela_set_binning_mode(y,x))
+    THROW_HW_ERROR(Error) << "Set binning failed";
 }
 
 void BinCtrlObj::getBin(Bin& bin)
 {
   DEB_MEMBER_FUNCT();
-
-  switch(GetBinningMode())
-    {
-    case x11: bin = Bin(1,1);break;
-    case x12: bin = Bin(1,2);break;
-    case x14: bin = Bin(1,4);break;
-    case x21: bin = Bin(2,1);break;
-    case x22: bin = Bin(2,2);break;
-    case x24: bin = Bin(2,4);break;
-    case x41: bin = Bin(4,1);break;
-    case x42: bin = Bin(4,2);break;
-    case x44: bin = Bin(4,4);break;
-    default:
-      THROW_HW_ERROR(Error) << "Bin error";
-      break;
-    }
+  
+  bin = Bin(dexela_get_binning_mode_vertical(),
+	    dexela_get_binning_mode_horizontal());
 
   DEB_RETURN() << DEB_VAR1(bin);
 }
@@ -117,6 +67,8 @@ void BinCtrlObj::checkBin(Bin& bin)
   if(y == 3) y = 2;
   else if(y > 4) y = 4;
   
+  int minVal = std::min(x,y);
+  x = y = minVal;		// binning must be square
   bin = Bin(x,y);
   
   DEB_RETURN() << DEB_VAR1(bin);

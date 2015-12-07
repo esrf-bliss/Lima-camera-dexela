@@ -32,7 +32,7 @@ namespace lima
     {
       DEB_CLASS_NAMESPC(DebModCamera, "DetInfoCtrlObj", "Dexela");
     public:
-      DetInfoCtrlObj(const std::string& detectorModel,int maxColumn,int maxRow);
+      DetInfoCtrlObj();
       virtual ~DetInfoCtrlObj();
 
       virtual void getMaxImageSize(Size& max_image_size);
@@ -48,11 +48,12 @@ namespace lima
 
       virtual void registerMaxImageSizeCallback(HwMaxImageSizeCallback& cb);
       virtual void unregisterMaxImageSizeCallback(HwMaxImageSizeCallback& cb);
+
+      int getModel() {return m_model;}
     private:
     HwMaxImageSizeCallbackGen 	m_mis_cb_gen;
-    std::string			m_detector_model;
-    int 			m_max_columns;
-    int 			m_max_rows;
+    int				m_model;
+    std::string			m_model_str;
     };
   }
 }

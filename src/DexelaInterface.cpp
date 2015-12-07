@@ -19,18 +19,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program; if not, see <http://www.gnu.org/licenses/>.
 //###########################################################################
-#pragma warning(disable : 4290)
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <errno.h>
+#include <sys/signalfd.h>
 #include "DexelaInterface.h"
 #include "DexelaDetInfoCtrlObj.h"
 #include "DexelaSyncCtrlObj.h"
 #include "DexelaBinCtrlObj.h"
 #include "DexelaReconstructionCtrlObj.h"
-#include <libconfig.h++>
-#include <NativeApi.h>
+#include <dexela/dexela_api.h>
+#include <xclib/xcliball.h>
 
-static const int NB_MAX_BUFFER = 16;
-static const int NB_MAX_PREFETCH_BUFFER = 1;
-static const double MAX_STOP_TIME = 3.;
+
+static const int RESERVED = 0;
+static const int SINGLE_UNIT = 0x1;
 
 using namespace lima;
 using namespace lima::Dexela;
@@ -42,72 +46,67 @@ public:
   _AcqThread(Interface &i);
   virtual ~_AcqThread();
 
+  void signal();
+
 protected:
   virtual void threadFunction();
 
 private:
-  Interface& m_interface;
+  Interface&	m_interface;
+  bool		m_stop;
 };
 
-Interface::Interface(const std::string& dataBasePath,
-		     const std::string& sensorName) :
-  m_acq_desc(NULL),
-  m_acq_event(NULL),
-  m_acq_thread(NULL),
-  m_wait_flag(true),
-  m_quit(false),
-  m_thread_running(false),
-  m_sensor_desc(new SensorDesc())
+Interface::Interface(const std::string& formatFile) :
+  m_acq_thread(NULL)
 {
   DEB_CONSTRUCTOR();
   std::string sensorFormat;
-  //configure m_sensor_desc from configuration file
-  _load_config_file(dataBasePath,sensorName,
-		    *m_sensor_desc,sensorFormat);
   
-  Derr error = openBoard((char*)sensorFormat.c_str(),&m_acq_desc);
-  if(error != SUCCESS)
+  gboolean error_flag = dexela_open_detector(formatFile.c_str());
+  if(!error_flag)
     THROW_HW_ERROR(Error) << "Could not open the acquisition board";
 
-  DEB_ALWAYS() << GetTransportMethod();
-  char version[32];
-  GetFirmwareVersion(version,sizeof(version));
-  if(error != SUCCESS)
-    THROW_HW_ERROR(Error) << "Can't get firmware version";
-  DEB_ALWAYS() << "Firmware :" << version;
+  guint error = dexela_init_serial_connection();
+  if(error)
+    THROW_HW_ERROR(Error) << "Can't init serial connection";
+  //Info
+  gchar* model = dexela_get_model();
+  gchar* serial_number = dexela_get_serial_number();
+  gchar* firmware = dexela_get_firmware_version();
+  DEB_ALWAYS() << DEB_VAR3(model,serial_number,firmware);
+  g_free(model),g_free(serial_number),g_free(firmware);
 
-  error = ::SetExposureTime(1 * 1000.);
-  if(error != SUCCESS)
+  DEB_ALWAYS() << DEB_VAR1(pxd_imageZdim());
+
+  error = dexela_set_exposure_time_micros(1 * 1e6);
+  if(error)
     THROW_HW_ERROR(Error) << "Can't set default exposure";
 
-  error = ::SetFullWellMode(::Low);
-  if(error != SUCCESS)
-    THROW_HW_ERROR(Error) << "Can't set the full well mode";
-
-  error = ::SetBinningMode(x11);
-  if(error != SUCCESS)
+  error = dexela_set_binning_mode(1,1);
+  if(error)
     THROW_HW_ERROR(Error) << "Can't set default binning";
 
-  error = ::SetTriggerSource(Internal_Software);
-  if(error != SUCCESS)
+  error = dexela_set_trigger_mode(::SOFTWARE);
+  if(error)
     THROW_HW_ERROR(Error) << "Can't set default trigger";
 
-  error = ::SetExposureMode(Frame_Rate_exposure);
-  if(error != SUCCESS)
-    THROW_HW_ERROR(Error) << "Could not set exposure mode to Frame Rate";
-
-  m_acq_event = CreateEvent(NULL,FALSE,FALSE,NULL);
-
   // TMP 16 Buffers
-  m_tmp_buffer = _aligned_malloc(m_sensor_desc->imageBufferX * m_sensor_desc->imageBufferY * 16 * 2,16);
-  if(!m_tmp_buffer)
-    THROW_HW_ERROR(Error) << "Can't malloc tmp memory buffers";
+  int imageByteCount = pxd_imageXdim() * pxd_imageYdim();
+  for(unsigned i = 0; i < sizeof(m_tmp_buffers)/sizeof(void*);++i)
+    {
+      if(posix_memalign(&m_tmp_buffers[i],16,imageByteCount))
+	THROW_HW_ERROR(Error) << "Can't malloc tmp memory buffers";
+      memset(m_tmp_buffers[i],0,imageByteCount);
+    }
 
-  int detectorWidth = m_sensor_desc->sensorX * m_sensor_desc->sensorsH;
-  int detectorHeight = m_sensor_desc->sensorY * m_sensor_desc->sensorsV;
+  error = dexela_power_on_sensor();
+  if(error)
+    THROW_HW_ERROR(Error) << "Can't power on detector";
 
-  m_det_info = new DetInfoCtrlObj(sensorName,detectorHeight,detectorWidth);
+  m_det_info = new DetInfoCtrlObj();
+  int model_type = m_det_info->getModel();
   m_sync = new SyncCtrlObj();
+  m_sync->setModel(model_type);
   m_bin = new BinCtrlObj();
   m_reconstruction = new ReconstructionCtrlObj(*this);
 
@@ -118,16 +117,43 @@ Interface::Interface(const std::string& dataBasePath,
   m_cap_list.push_back(HwCap(m_bin));
   m_cap_list.push_back(HwCap(m_reconstruction));
 
+  // Synchronization pipe
+  if(pipe(m_synchro_pipe))
+    THROW_HW_ERROR(Error) << "Can't open synchronization pipe";
+
+  //Signal file descriptor
+  sigset_t mask;
+  sigemptyset(&mask);
+  sigaddset(&mask,SIGUSR1);
+  if(sigprocmask(SIG_BLOCK,&mask,NULL) < 0)
+    {
+      char str_errno[1024];
+      strerror_r(errno,str_errno,sizeof(str_errno));
+      THROW_HW_ERROR(Error) << "Can't block signal: " << str_errno;
+    }
+  m_signal_fd = signalfd(-1,&mask,0);
+  if(m_signal_fd < 0)
+    {
+      char str_errno[1024];
+      strerror_r(errno,str_errno,sizeof(str_errno));
+      THROW_HW_ERROR(Error) << "Can't create signal fd: " << str_errno;
+    }
+      
   m_acq_thread = new _AcqThread(*this);
   m_acq_thread->start();
 }
 
 Interface::~Interface()
 {
-  CloseBoard(m_acq_desc);
+  dexela_close_detector();
+  delete m_acq_thread;
   delete m_det_info;
   delete m_sync;
-  _aligned_free(m_tmp_buffer);
+  delete m_bin;
+  delete m_reconstruction;
+  for(unsigned i = 0; i < sizeof(m_tmp_buffers)/sizeof(void*);++i)
+    free(m_tmp_buffers[i]);
+  close(m_signal_fd);
 }
 
 void Interface::getCapList(CapList &cap_list) const
@@ -138,16 +164,15 @@ void Interface::getCapList(CapList &cap_list) const
 void Interface::reset(ResetLevel reset_level)
 {
   DEB_MEMBER_FUNCT();
-
-  Derr error = SoftReset();
-  if(error != SUCCESS)
-    THROW_HW_ERROR(Error) << "Could not set exposure mode to Frame Rate";
 }
 
 void Interface::prepareAcq()
 {
   DEB_MEMBER_FUNCT();
+  AutoMutex aLock(m_cond.mutex());
   m_acq_frame_nb = -1;
+   
+  m_acq_thread->signal();
 }
 
 void Interface::startAcq()
@@ -156,42 +181,59 @@ void Interface::startAcq()
 
   TrigMode trig_mode;
   m_sync->getTrigMode(trig_mode);
-  bool waitStart = (trig_mode != IntTrig && 
-		    trig_mode != IntTrigMult);
 
   StdBufferCbMgr& buffer_mgr = m_buffer_ctrl_obj.getBuffer();
   buffer_mgr.setStartTimestamp(Timestamp::now());
-  AutoMutex aLock(m_cond.mutex());
-  m_wait_flag = false;
-  m_cond.broadcast();
-  while(waitStart && !m_thread_running)
-    m_cond.wait();
+
+  int nb_frames_to_acq;
+  m_sync->getNbHwFrames(nb_frames_to_acq);
+  double lat_time;
+  m_sync->getLatTime(lat_time);
+
+  gint error = dexela_set_exposure_mode(::NORMAL,
+					nb_frames_to_acq,
+					int(lat_time * 1e6));
+  if(error)
+    THROW_HW_ERROR(Error) << "Could not set exposure mode to Frame Rate";
+
+  error = pxd_goLive(SINGLE_UNIT,1);
+  if(error < 0)
+    THROW_HW_ERROR(Error) << "Can't go Snap" << DEB_VAR1(pxd_mesgErrorCode(error));
+  
+  if(trig_mode == IntTrig && 
+     trig_mode == IntTrigMult)
+    {
+      pxd_setCameraLinkCCOut(0x1, 0x1);
+      pxd_setCameraLinkCCOut(0x1, 0x0);
+    }
 }
 
 void Interface::stopAcq()
 {
   DEB_MEMBER_FUNCT();
-
-  AutoMutex aLock(m_cond.mutex());
-  m_wait_flag = true;
-  SetEvent(m_acq_event);
   
-  while(m_thread_running)
-    m_cond.wait();
+  int error = pxd_goAbortLive(SINGLE_UNIT);
+  if(error)
+    THROW_HW_ERROR(Error) << "Unable to stop acquisition"
+			  << DEB_VAR1(pxd_mesgErrorCode(error));
 }
 
 void Interface::getStatus(StatusType &status)
 {
   DEB_MEMBER_FUNCT();
 
-  status.set(m_thread_running ? 
-	     HwInterface::StatusType::Exposure : HwInterface::StatusType::Ready);
+  char error_msg[1024];
+  if(pxd_mesgFaultText(SINGLE_UNIT, error_msg, sizeof(error_msg)))
+    DEB_ERROR() << DEB_VAR1(error_msg);
+
+  status.set(HwInterface::StatusType::Ready);
 
   DEB_RETURN() << DEB_VAR1(status);
 }
 
 int Interface::getNbHwAcquiredFrames()
 {
+  AutoMutex lock(m_cond.mutex());
   return m_acq_frame_nb + 1;
 }
 
@@ -200,216 +242,100 @@ void Interface::setFullWellMode(Interface::wellMode mode)
   DEB_MEMBER_FUNCT();
   DEB_PARAM() << DEB_VAR1(mode);
 
-  ::FullWellModes raw_mode;
-  switch(mode)
-    {
-    case Interface::Low: 	raw_mode = ::Low;break;
-    case Interface::High: 	raw_mode = ::High;break;
-    default:
-      THROW_HW_ERROR(InvalidValue) << "WellMode can only be High or Low";break;
-    }
-
-  if(::SetFullWellMode(raw_mode) != SUCCESS)
-    THROW_HW_ERROR(Error) << "Problem setting full well mode";
+  THROW_HW_ERROR(NotSupported) << "Not implemented yet ;)";
 }
 
 Interface::wellMode Interface::getFullWellMode() const
 {
   DEB_MEMBER_FUNCT();
+  THROW_HW_ERROR(NotSupported) << "Not implemented yet ;)";
 
-  ::FullWellModes raw_mode = ::GetFullWellMode();
   Interface::wellMode mode;
-  switch(raw_mode)
-    {
-    case ::Low: 	mode = Interface::Low;break;
-    case ::High: 	mode = Interface::High;break;
-    default:
-      THROW_HW_ERROR(Error) << "Problem getting full well mode";
-    }
   return mode;
-}
-/*============================================================================
-			   Static Methodes
-============================================================================*/
-void Interface::_load_config_file(const std::string& dataBasePath,
-				  const std::string& sensorName,
-				  SensorDesc& sensor_desc,
-				  std::string& sensorFormat)
-{
-  DEB_STATIC_FUNCT();
-
-  libconfig::Config config;
-  try
-    {
-      config.readFile(dataBasePath.c_str());
-    }
-  catch(libconfig::ParseException &exp)
-    {
-      THROW_HW_ERROR(Error) << exp.getError() 
-			    << " (" << exp.getFile()
-			    << ":" << exp.getLine() << ")";
-    }
-  catch(libconfig::FileIOException &exp)
-    {
-      THROW_CTL_ERROR(Error) << exp.what();
-    }
-
-  libconfig::Setting& root = config.getRoot();
-  int nbSensor = root.getLength();
-  bool found = false;
-  for(int i = 0;!found && i < nbSensor;++i)
-    {
-      const libconfig::Setting &sensorConfig = root[i];
-      if(sensorConfig.isGroup() && sensorName == sensorConfig.getName())
-	{
-	  found = true;
-
-	  if(!sensorConfig.lookupValue("numSensors",sensor_desc.numSensors))
-	    THROW_HW_ERROR(Error) << "Field numSensors must be in detector configuration";
-
-	  if(!sensorConfig.lookupValue("sensorStrips",sensor_desc.sensorStrips))
-	    THROW_HW_ERROR(Error) << "Field sensorStrips must be in detector configuration";
-    
-	  if(!sensorConfig.lookupValue("stripLength",sensor_desc.stripLength))
-	    THROW_HW_ERROR(Error) << "Field stripLength must be in detector configuration";
-
-	  if(!sensorConfig.lookupValue("sensorX",sensor_desc.sensorX))
-	    THROW_HW_ERROR(Error) << "Field sensorX must be in detector configuration";
-	  
-	  if(!sensorConfig.lookupValue("sensorY",sensor_desc.sensorY))
-	    THROW_HW_ERROR(Error) << "Field sensorY must be in detector configuration";
-	  
-	  if(!sensorConfig.lookupValue("sensorsH",sensor_desc.sensorsH))
-	    THROW_HW_ERROR(Error) << "Field sensorsH must be in detector configuration";
-
-	  if(!sensorConfig.lookupValue("sensorsV",sensor_desc.sensorsV))
-	    THROW_HW_ERROR(Error) << "Field sensorsV must be in detector configuration";
-
-	  if(!sensorConfig.lookupValue("sensorFormat",sensorFormat))
-	    THROW_HW_ERROR(Error) << "Field sensorFormat must be in detector configuration";
-	  
-	  sensor_desc.imageBufferX = sensor_desc.sensorX * sensor_desc.sensorsV;
-	  sensor_desc.imageBufferY = sensor_desc.sensorY * sensor_desc.sensorsH;
-	}
-    }
-  if(!found)
-    THROW_HW_ERROR(InvalidValue) << DEB_VAR1(sensorName) << 
-      " not found in config " << DEB_VAR1(dataBasePath);
 }
 /*----------------------------------------------------------------------------
 			     Thread class
 ----------------------------------------------------------------------------*/
 Interface::_AcqThread::_AcqThread(Interface &i) :
-  m_interface(i)
+  m_interface(i),m_stop(false)
 {
 }
 
 Interface::_AcqThread::~_AcqThread()
 {
   AutoMutex aLock(m_interface.m_cond.mutex());
-  m_interface.m_quit = true;
-  SetEvent(m_interface.m_acq_event);
-  m_interface.m_cond.broadcast();
+  m_stop = true;
+  signal();
+}
+
+void Interface::_AcqThread::signal()
+{
+  write(m_interface.m_synchro_pipe[1],"|",1);
 }
 
 void Interface::_AcqThread::threadFunction()
 {
   DEB_MEMBER_FUNCT();
 
-  HANDLE sync[] = {m_interface.m_acq_event,m_interface.m_acq_desc};
-  AutoMutex aLock(m_interface.m_cond.mutex());
+  if(pxd_eventCapturedFieldCreate(SINGLE_UNIT,SIGUSR1,RESERVED))
+    THROW_HW_ERROR(Error) << "Can't set signal on capture";
+
   StdBufferCbMgr& buffer_mgr = m_interface.m_buffer_ctrl_obj.getBuffer();
 
-  while(!m_interface.m_quit)
+  int imageByteCount = pxd_imageXdim() * pxd_imageYdim();
+
+  bool continue_flag = true;
+  unsigned nb_buffer = sizeof(m_interface.m_tmp_buffers) / sizeof(void*);
+  int nb_frames_to_acq = 0;
+  struct pollfd fds[2];
+  fds[0].fd = m_interface.m_synchro_pipe[0];
+  fds[0].events = POLLIN;
+  fds[1].fd = m_interface.m_signal_fd;
+  fds[1].events = POLLIN;
+
+  while(continue_flag)
     {
-      while(m_interface.m_wait_flag && !m_interface.m_quit)
+      poll(fds,2,-1);
+
+      if(fds[1].revents)
 	{
-	  DEB_TRACE() << "Wait";
-	  m_interface.m_thread_running = false;
-	  m_interface.m_cond.broadcast();
-	  m_interface.m_cond.wait();
-	}
-      DEB_TRACE() << "Run";
-
-      m_interface.m_thread_running = true;
-      if(m_interface.m_quit) return;
-
-      int raw_buffer_size = imageXdim() * imageYdim();
-      int nb_frames_to_acq;
-      m_interface.m_sync->getNbHwFrames(nb_frames_to_acq);
-      double expo_time;
-      m_interface.m_sync->getExpTime(expo_time);
-
-      int bufferId = 0;
-      int expectedBufferId = 1;
-      int nbBufferPrefetch = int(MAX_STOP_TIME / expo_time);
-      if(nbBufferPrefetch < 1) 
-	nbBufferPrefetch = 1;
-      else if(nbBufferPrefetch > NB_MAX_PREFETCH_BUFFER)
-	nbBufferPrefetch = NB_MAX_PREFETCH_BUFFER;
-
-      if(nbBufferPrefetch > nb_frames_to_acq)
-	nbBufferPrefetch = nb_frames_to_acq;
-
-      bool continueFlag = true;
-      // Prefetch images
-      for(int i = 0;i < nbBufferPrefetch;++i)
-	Snap(1,++bufferId,1);
-
-      m_interface.m_cond.broadcast();
-      aLock.unlock();
-
-      do
-	{
-	  DWORD ret = WaitForMultipleObjects(sizeof(sync)/sizeof(HANDLE),
-					     sync,FALSE,INFINITE);
-	  switch(ret)
+	  struct signalfd_siginfo si;
+	  ssize_t res = read(fds[1].fd,&si,sizeof(si));
+	  if(res == -1)
 	    {
-	    case WAIT_OBJECT_0 + 0:
-	      DEB_TRACE() << "Event signal";
-	      aLock.lock();
-	      continueFlag = !m_interface.m_wait_flag && !m_interface.m_quit;
-	      aLock.unlock();
-	      break;
-	    case WAIT_OBJECT_0 + 1:
-	      {
-		int capBuf = GetCapturedBuffer();
-		if(capBuf != expectedBufferId) break;
-		if(++bufferId > NB_MAX_BUFFER) bufferId = 1;
-		if(++expectedBufferId > NB_MAX_BUFFER) expectedBufferId = 1;
-		aLock.lock();
-		++m_interface.m_acq_frame_nb;
-		int frame_number = m_interface.m_acq_frame_nb;
-		aLock.unlock();
-		if((nb_frames_to_acq - 1) > (frame_number - nbBufferPrefetch))
-		  Snap(1,bufferId,1);
-
-		continueFlag = (nb_frames_to_acq - 1) > frame_number;
-
-		byte* pMem = (byte*)m_interface.m_tmp_buffer;
-		pMem += (capBuf - 1) * raw_buffer_size;
-		int readSize = ReadBufferUchar(1,capBuf,0,0,-1,-1,
-					       pMem,raw_buffer_size,"Grey");
-		if(readSize == raw_buffer_size)
-		  {
-		    HwFrameInfoType frame_info;
-		    frame_info.acq_frame_nb = frame_number;
-		    continueFlag = buffer_mgr.newFrameReady(frame_info) && continueFlag;
-		  }
-		else
-		  {
-		    DEB_ERROR() << "Acquisition Error:" << DEB_VAR2(readSize,raw_buffer_size);
-		    continueFlag = false;
-		  }
-	      }
-	      break;
-	    default:
-	      DEB_ERROR() << "Snap failed";
-	      continueFlag = false;
-	      break;
+	      char str_errno[1024];
+	      strerror_r(errno,str_errno,sizeof(str_errno));
+ 	      DEB_WARNING() << "Something strange happen!" << str_errno;
+	      continue;
 	    }
+
+	  AutoMutex lock(m_interface.m_cond.mutex());
+	  int frame_id = ++m_interface.m_acq_frame_nb;
+	  lock.unlock();
+	  if(frame_id >= nb_frames_to_acq) continue;
+
+	  pxbuffer_t buffer_id = pxd_capturedBuffer(SINGLE_UNIT);
+	  pxd_readuchar(SINGLE_UNIT, buffer_id,
+			0,0,-1,-1,
+			(uchar*)m_interface.m_tmp_buffers[frame_id % nb_buffer],
+			imageByteCount,
+			(char*)"Grey");
+	  if(frame_id == nb_frames_to_acq -1)
+	    pxd_goAbortLive(SINGLE_UNIT);
+
+	  HwFrameInfoType frame_info;
+	  frame_info.acq_frame_nb = frame_id;
+	  bool continueFlag = buffer_mgr.newFrameReady(frame_info);
+	  if(!continueFlag) nb_frames_to_acq = 0;
 	}
-      while(continueFlag);
-      m_interface.m_wait_flag = true;
+      if(fds[0].revents)
+	{
+	  char event_buffer[1024];
+	  read(m_interface.m_synchro_pipe[0],event_buffer,sizeof(event_buffer));
+
+	  m_interface.m_sync->getNbHwFrames(nb_frames_to_acq);
+	  AutoMutex lock(m_interface.m_cond.mutex());
+	  continue_flag = !m_stop;
+	}
     }
 }

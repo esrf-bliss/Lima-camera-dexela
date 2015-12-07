@@ -20,14 +20,14 @@
 // along with this program; if not, see <http://www.gnu.org/licenses/>.
 //###########################################################################
 #include "DexelaSyncCtrlObj.h"
-#include <NativeApi.h>
+#include <dexela/dexela_api.h>
 
 using namespace lima;
 using namespace lima::Dexela;
 
 static const double MIN_EXPO_TIME = 1/86.;  // 86Hz maximum speed with 4x4 bin
 
-SyncCtrlObj::SyncCtrlObj()
+SyncCtrlObj::SyncCtrlObj() : m_model(-1)
 {
 }
 
@@ -58,15 +58,15 @@ void SyncCtrlObj::setTrigMode(TrigMode trig_mode)
 {
   DEB_MEMBER_FUNCT();
 
-  ExposureTriggerSource trigMode;
+  ::TriggerMode trigMode;
   switch(trig_mode)
     {
-    case ExtTrigMult: trigMode = Ext_neg_edge_trig;break;
-    case ExtGate: trigMode = Ext_Duration_Trig;break;
+    case ExtTrigMult:	trigMode = ::EDGE;	break;
+    case ExtGate:	trigMode = ::DURATION;	break;
     default:
-      trigMode = Internal_Software;break;
+			trigMode = ::SOFTWARE;	break;
     }
-  if(SetTriggerSource(trigMode) != SUCCESS)
+  if(dexela_set_trigger_mode(trigMode))
     THROW_HW_ERROR(Error) << "Problem setting trigger mode";
 }
 
@@ -74,12 +74,12 @@ void SyncCtrlObj::getTrigMode(TrigMode& trig_mode)
 {
   DEB_MEMBER_FUNCT();
 
-  switch(GetTriggerSource())
+  switch(dexela_get_trigger_mode())
     {
-    case Ext_neg_edge_trig: trig_mode = ExtTrigMult;break;
-    case Ext_Duration_Trig: trig_mode = ExtGate;break;
+    case ::EDGE:	trig_mode = ExtTrigMult;	break;
+    case ::DURATION:	trig_mode = ExtGate;		break;
     default:
-      trig_mode = IntTrig;break;
+			trig_mode = IntTrig;		break;
     }
 
   DEB_RETURN() << DEB_VAR1(trig_mode);
@@ -89,12 +89,42 @@ void SyncCtrlObj::setExpTime(double exp_time)
 {
   DEB_MEMBER_FUNCT();
 
-  if(SetExposureTime(float(exp_time * 1e3)) != SUCCESS)
+  int bin = dexela_get_binning_mode_vertical();
+  double readout;
+  switch(m_model)
+    {
+    case 1207:
+    case 2307:
+      switch(bin)
+	{
+	case 1: readout = 1/60.;break;
+	case 2: readout = 1/156.;break;
+	case 4: readout = 1/191.;break;
+	}
+      break;
+    case 1512:
+    case 2315:
+    case 2923:
+      switch(bin)
+	{
+	case 1: readout = 1/26.;break;
+	case 2: readout = 1/70.;break;
+	case 4: readout = 1/86.;break;
+	}
+      break;
+    default:
+      THROW_HW_ERROR(Error) << "model wasn't set or not managed yet: "
+			    << DEB_VAR1(m_model);
+    }
+  exp_time -= readout;
+  if(exp_time < 0) exp_time = 0.;
+    
+  if(dexela_set_exposure_time_micros(gint(exp_time * 1e6)))
     THROW_HW_ERROR(Error) << "Problem setting exposure time";
 }
 void SyncCtrlObj::getExpTime(double& exp_time)
 {
-  exp_time = GetExposureTime() / 1e3;
+  exp_time = dexela_get_exposure_time_micros()  / 1e6;
 }
 
 void SyncCtrlObj::setLatTime(double lat_time)
@@ -128,5 +158,9 @@ void SyncCtrlObj::getValidRanges(ValidRangesType& valid_ranges)
   valid_ranges.max_lat_time = 0.;
 }
 
+void SyncCtrlObj::setModel(int model)
+{
+  m_model = model;
+}
 
 

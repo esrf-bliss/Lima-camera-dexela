@@ -21,7 +21,7 @@
 //###########################################################################
 #include "DexelaReconstructionCtrlObj.h"
 #include "processlib/LinkTask.h"
-#include <NativeApi.h>
+#include <dexela/dexela_api.h>
 
 using namespace lima;
 using namespace lima::Dexela;
@@ -46,6 +46,9 @@ ReconstructionCtrlObj::ReconstructionCtrlObj(Interface& i) :
   m_interface(i)
 {
   m_rec_task = new _Task(*this);
+  gchar* model = dexela_get_model();
+  m_model = atoi(model);
+  g_free(model);
 }
 
 ReconstructionCtrlObj::~ReconstructionCtrlObj()
@@ -60,26 +63,8 @@ LinkTask* ReconstructionCtrlObj::getReconstructionTask()
 
 Data ReconstructionCtrlObj::reconstruct(Data& src)
 {
-  ImgDims scrambleBufferDims;
-  scrambleBufferDims.depth = 1;
-  scrambleBufferDims.width = m_interface.m_sensor_desc->imageBufferX;
-  scrambleBufferDims.height = m_interface.m_sensor_desc->imageBufferY;
-  scrambleBufferDims.pixelType = u16;
-
-  ImgDims memoryforimageDims;
-  memoryforimageDims.depth = 1;
-  memoryforimageDims.width = src.dimensions[0];
-  memoryforimageDims.height = src.dimensions[1];
-  memoryforimageDims.pixelType = u16;
-
-  int raw_buffer_size = imageXdim() * imageYdim();
-
-  byte* imPtr = (byte*)m_interface.m_tmp_buffer;
-  imPtr += (src.frameNumber % NB_HARD_BUFFER) * raw_buffer_size;
-  
-  unscrambleALL(1,imPtr ,&scrambleBufferDims, 
-		src.data(),&memoryforimageDims,
-		m_interface.m_sensor_desc ,GetBinningMode()); 
-
+  unsigned nb_buffer = sizeof(m_interface.m_tmp_buffers) / sizeof(void*);
+  dexela_descramble((ushort*)m_interface.m_tmp_buffers[src.frameNumber % nb_buffer],
+		    (ushort*)src.data(),m_model);
   return src;
 }

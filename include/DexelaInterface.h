@@ -25,8 +25,6 @@
 #include "DexelaCompatibility.h"
 #include "lima/HwInterface.h"
 
-typedef struct SensorDescription SensorDesc;
-
 namespace lima
 {
   namespace Dexela
@@ -44,8 +42,7 @@ namespace lima
     public:
       enum wellMode {Low,High};
       
-      Interface(const std::string& databasePath,
-		const std::string& sensorFromat);
+      Interface(const std::string& formatFile);
       virtual ~Interface();
 
       virtual void getCapList(CapList &) const;
@@ -64,19 +61,10 @@ namespace lima
 
       
     private:
-      void _load_config_file(const std::string&,
-			     const std::string&,
-			     SensorDesc&,std::string&);
-
-      HANDLE 			m_acq_desc;
-      HANDLE			m_acq_event;
-      Thread*			m_acq_thread;
+      _AcqThread*		m_acq_thread;
       long			dummy0;
       Cond			m_cond;
       long			dummy1;
-      volatile bool		m_wait_flag;
-      volatile bool		m_quit;
-      volatile bool		m_thread_running;
       DetInfoCtrlObj* 		m_det_info;
       SyncCtrlObj*		m_sync;
       BinCtrlObj*		m_bin;
@@ -84,8 +72,9 @@ namespace lima
       SoftBufferCtrlObj 	m_buffer_ctrl_obj;
       int			m_acq_frame_nb;
       CapList			m_cap_list;
-      void*			m_tmp_buffer;
-      SensorDesc*		m_sensor_desc;
+      void*			m_tmp_buffers[16];
+      int			m_synchro_pipe[2];
+      int			m_signal_fd;
     };
   }
 }

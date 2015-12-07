@@ -29,8 +29,7 @@ namespace Dexela
   public:
     enum wellMode {Low,High};
       
-    Interface(const std::string& databasePath,
-	      const std::string& sensorFromat);
+    Interface(const std::string& formatFile);
     virtual ~Interface();
 
     virtual void getCapList(std::vector<HwCap> &cap_list /Out/) const;

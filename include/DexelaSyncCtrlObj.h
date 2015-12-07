@@ -52,8 +52,10 @@ namespace lima
 
       virtual void getValidRanges(ValidRangesType& valid_ranges);
 
+      void setModel(int model);
     private:
       int m_acq_nb_frames;
+      int m_model;
     };
   }
 }

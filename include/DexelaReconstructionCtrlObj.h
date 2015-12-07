@@ -49,6 +49,7 @@ namespace lima
 
       Interface& 	m_interface;
       LinkTask* 	m_rec_task;
+      int		m_model;
     };
   }
 }
