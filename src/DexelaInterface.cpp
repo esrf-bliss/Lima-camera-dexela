@@ -164,6 +164,8 @@ void Interface::getCapList(CapList &cap_list) const
 void Interface::reset(ResetLevel reset_level)
 {
   DEB_MEMBER_FUNCT();
+  dexela_power_off_sensor();
+  dexela_power_on_sensor();
 }
 
 void Interface::prepareAcq()
