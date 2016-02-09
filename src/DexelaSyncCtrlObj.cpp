@@ -29,6 +29,13 @@ static const double MIN_EXPO_TIME = 1/86.;  // 86Hz maximum speed with 4x4 bin
 
 SyncCtrlObj::SyncCtrlObj() : m_model(-1)
 {
+  DEB_CONSTRUCTOR();
+
+  m_paused_shutter_mode_available = dexela_is_paused_shutter_mode_available();
+  if(!m_paused_shutter_mode_available)
+    DEB_WARNING() << "Shutter paused mode is not available,"
+		  << "this will cause trigger jitters. "
+		  << "Update the camera firmware";
 }
 
 SyncCtrlObj::~SyncCtrlObj()
@@ -42,11 +49,15 @@ bool SyncCtrlObj::checkTrigMode(TrigMode trig_mode)
     {
     case IntTrig:
     case IntTrigMult:
-    case ExtTrigMult:
-    case ExtGate:
       valid_mode = true;
       break;
-
+    case ExtTrigMult:
+    case ExtGate:
+      valid_mode = !m_paused_shutter_mode_available;
+      break;
+    case ExtTrigReadout:
+      valid_mode = m_paused_shutter_mode_available;
+      break;
     default:
       valid_mode = false;
       break;
@@ -57,17 +68,33 @@ bool SyncCtrlObj::checkTrigMode(TrigMode trig_mode)
 void SyncCtrlObj::setTrigMode(TrigMode trig_mode)
 {
   DEB_MEMBER_FUNCT();
+  
+  TrigMode previous_trig_mode;
+  getTrigMode(previous_trig_mode);
 
   ::TriggerMode trigMode;
   switch(trig_mode)
     {
+    case ExtTrigReadout:
     case ExtTrigMult:	trigMode = ::EDGE;	break;
     case ExtGate:	trigMode = ::DURATION;	break;
     default:
 			trigMode = ::SOFTWARE;	break;
     }
+  if(trig_mode == ExtTrigReadout)
+    {
+      if(dexela_set_paused_shutter_mode(::PAUSED))
+	THROW_HW_ERROR(Error) << "Can't activate paused shutter mode";
+      dexela_set_exposure_time_micros(0);
+    }
+  else if(m_paused_shutter_mode_available)
+    dexela_set_paused_shutter_mode(::CONTINUOUS);
+
   if(dexela_set_trigger_mode(trigMode))
     THROW_HW_ERROR(Error) << "Problem setting trigger mode";
+
+  if(previous_trig_mode == ExtTrigReadout)
+    setExpTime(m_exp_time);
 }
 
 void SyncCtrlObj::getTrigMode(TrigMode& trig_mode)
@@ -76,7 +103,10 @@ void SyncCtrlObj::getTrigMode(TrigMode& trig_mode)
 
   switch(dexela_get_trigger_mode())
     {
-    case ::EDGE:	trig_mode = ExtTrigMult;	break;
+    case ::EDGE:
+      trig_mode = m_paused_shutter_mode_available ?
+	ExtTrigReadout : ExtTrigMult;
+      break;
     case ::DURATION:	trig_mode = ExtGate;		break;
     default:
 			trig_mode = IntTrig;		break;
@@ -88,6 +118,17 @@ void SyncCtrlObj::getTrigMode(TrigMode& trig_mode)
 void SyncCtrlObj::setExpTime(double exp_time)
 {
   DEB_MEMBER_FUNCT();
+
+  m_exp_time = exp_time;
+  
+  TrigMode trig_mode;
+  getTrigMode(trig_mode);
+  /* Don't set the exposure time in ExtTrigReadout
+     because this mode is link with the fastest detector
+     exposure time.
+  */
+  if(trig_mode == ExtTrigReadout)
+    return;
 
   int bin = dexela_get_binning_mode_vertical();
   double readout;

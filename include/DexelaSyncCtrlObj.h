@@ -54,8 +54,10 @@ namespace lima
 
       void setModel(int model);
     private:
-      int m_acq_nb_frames;
-      int m_model;
+      int	m_acq_nb_frames;
+      int	m_model;
+      bool	m_paused_shutter_mode_available;
+      double	m_exp_time;
     };
   }
 }
