@@ -57,7 +57,8 @@ private:
 };
 
 Interface::Interface(const std::string& formatFile) :
-  m_acq_thread(NULL)
+  m_acq_thread(NULL),
+  m_skip_first_frame(true)
 {
   DEB_CONSTRUCTOR();
   std::string sensorFormat;
@@ -285,7 +286,7 @@ void Interface::_AcqThread::threadFunction()
   StdBufferCbMgr& buffer_mgr = m_interface.m_buffer_ctrl_obj.getBuffer();
 
   int imageByteCount = pxd_imageXdim() * pxd_imageYdim();
-
+  bool skip_first_frame = false;
   bool continue_flag = true;
   unsigned nb_buffer = sizeof(m_interface.m_tmp_buffers) / sizeof(void*);
   int nb_frames_to_acq = 0;
@@ -308,6 +309,13 @@ void Interface::_AcqThread::threadFunction()
 	      char str_errno[1024];
 	      strerror_r(errno,str_errno,sizeof(str_errno));
  	      DEB_WARNING() << "Something strange happen!" << str_errno;
+	      continue;
+	    }
+
+	  // skip the first frame
+	  if(skip_first_frame)
+	    {
+	      skip_first_frame = false;
 	      continue;
 	    }
 
@@ -336,6 +344,9 @@ void Interface::_AcqThread::threadFunction()
 	  read(m_interface.m_synchro_pipe[0],event_buffer,sizeof(event_buffer));
 
 	  m_interface.m_sync->getNbHwFrames(nb_frames_to_acq);
+	  TrigMode trig_mode;
+	  m_interface.m_sync->getTrigMode(trig_mode);
+	  skip_first_frame = trig_mode == ExtTrigReadout && m_interface.m_skip_first_frame;
 	  AutoMutex lock(m_interface.m_cond.mutex());
 	  continue_flag = !m_stop;
 	}
