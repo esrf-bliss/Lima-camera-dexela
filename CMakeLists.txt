@@ -21,40 +21,38 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program; if not, see <http://www.gnu.org/licenses/>.
 ############################################################################
+set(NAME "dexela")
 
 set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--add-needed")
 
 #SOURCEs
-set(dexela_srcs src/DexelaInterface.cpp src/DexelaDetInfoCtrlObj.cpp 
+set(${NAME}_srcs src/DexelaInterface.cpp src/DexelaDetInfoCtrlObj.cpp 
 	src/DexelaSyncCtrlObj.cpp src/DexelaBinCtrlObj.cpp
 	src/DexelaReconstructionCtrlObj.cpp)
 	 
-file(STRINGS "VERSION" dexela_vers)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_LINUX")
+add_definitions(-DOS_LINUX)
 
-add_library(limadexela SHARED ${dexela_srcs})
+add_library(lima${NAME} SHARED ${${NAME}_srcs})
 
 #INCLUDEs
-target_include_directories(limadexela PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_include_directories(limadexela PUBLIC "/usr/local/include/dexela")
-target_include_directories(limadexela PUBLIC "/usr/include/glib-2.0")
-target_include_directories(limadexela PUBLIC "/usr/lib/x86_64-linux-gnu/glib-2.0/include")
-target_include_directories(limadexela PUBLIC "${CMAKE_SOURCE_DIR}/../../dexela_lib/libdexela/include")
+target_include_directories(lima${NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(lima${NAME} PUBLIC "/usr/local/include/dexela")
+target_include_directories(lima${NAME} PUBLIC "/usr/include/glib-2.0")
+target_include_directories(lima${NAME} PUBLIC "/usr/lib/x86_64-linux-gnu/glib-2.0/include")
+target_include_directories(lima${NAME} PUBLIC "${CMAKE_SOURCE_DIR}/../../dexela_lib/libdexela/include")
 
 #LIBRARY
 find_library(DEXELA_LIB dexela)
 if (("${DEXELA_LIB}" STREQUAL "DEXELA_LIB-NOTFOUND"))
-	message(FATAL_ERROR "dexela : libdexela not found, you can search it in cmake-gui or try to install it if it isn't here.")
+	message(FATAL_ERROR "${NAME} : libdexela not found, you can search it in cmake-gui or try to install it if it isn't here.")
 endif()
-target_link_libraries(limadexela limacore)
-target_link_libraries(limadexela ${DEXELA_LIB})
+target_link_libraries(lima${NAME} limacore)
+target_link_libraries(lima${NAME} ${DEXELA_LIB})
 
-set_target_properties(limadexela PROPERTIES VERSION ${dexela_vers} SOVERSION "1")
+include(CameraVERSION)
+install(TARGETS lima${NAME} LIBRARY DESTINATION lib)
 
-install(TARGETS limadexela LIBRARY DESTINATION lib)
-
-if(COMPILE_SIP)
-    set(NAME "dexela")
+if(LIMA_ENABLE_PYTHON)
     include(CameraRunSIP)
     install(FILES python/__init__.py DESTINATION "${PYTHON_SITE_PACKAGES_DIR}/Lima/Dexela")
 endif()
