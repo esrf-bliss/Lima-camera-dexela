@@ -3,54 +3,58 @@
 Dexela camera plugin
 ####################
 
-.. image:: Dexela.jpg 
+.. image:: Dexela.jpg
 
 Introduction
 ************
+
 The Dexela detector is a brand product of  PerkinElmer. PerkinElmer has recently Acquired Dexela Limited a
 manufacturer of CMOS flat panel. Nevertheless the Dexela detector SDK still remains not compatible with the other PerkinElmer
 detector SDK (see perkinelemer plugin) and one need to use this camera plugin instead.
 
 Prerequisite
 ************
-The Dexela detector model sensor2923 has only been tested at ESRF.
+
+The Dexela detector model sensor2923 only has been tested at ESRF.
 
 The detector is controlled via an acquisition board: PIXCI(R) E4 PCIExpress Camera Link board (EPIX,Inc.).
 
-You need to install the acquisition card sdk. It was tested with 3.8 version (xclib). You can find them at http://www.epixinc.com/support/files.php .
+You need to install the acquisition card SDK. It was tested with 3.8 version (xclib). You can find them at http://www.epixinc.com/support/files.php .
 
-You also need to install libdexela which is not yet GPL. see detail with mihael.koep@softwareschneiderei.de.
+You also need to install libdexela which is not yet GPL. See detail with mihael.koep@softwareschneiderei.de.
 
 BIOS configuration
 ==================
 
 You should disable all power saving mode like CSTATE and disable also multiple-threading feature of cpu.
 
-At ESRF, SuperMicro computers as to be configured like this:
+At ESRF, SuperMicro computers have to be configured like this:
 
- - Simultaneous Multi-threading as to be disabled
- - C1E support as to be disable
- - Intel CSTATE Tech as to be disable
+ - Simultaneous Multi-threading has to be disabled
+ - C1E support has to be disabled
+ - Intel CSTATE Tech has to be disabled
 
 Linux kernel configuration
 ==========================
 
 As the PIXCI acquisition card needs a low jitters configuration, you need to change some kernel parameters.
-To do so, you have to change in grub configuration file (under /etc/default/grub for debian) the GRUB_CMDLINE_LINUX_DEFAULT
+To do so, you have to change in grub configuration file (under ``/etc/default/grub for debian``) the ``GRUB_CMDLINE_LINUX_DEFAULT``
 by adding theses options:
 
- - pcie_aspm=off
- - intel_idle.max_cstate=0
- - processor.max_cstate=0
- - idle=poll
- - mce=ignore_ce 
- - ipmi_si.force_kipmi=0 
- - nmi_watchdog=0 
- - noht 
- - nosoftlockup 
- - isolcpus=0
+.. code-block:: sh
 
-the whole line will look something like this:
+ pcie_aspm=off
+ intel_idle.max_cstate=0
+ processor.max_cstate=0
+ idle=poll
+ mce=ignore_ce
+ ipmi_si.force_kipmi=0
+ nmi_watchdog=0
+ noht
+ nosoftlockup
+ isolcpus=0
+
+the whole line should look something like this:
 
 .. code-block:: sh
 
@@ -65,69 +69,31 @@ On Debian you can simply type:
 
 Installation & Module configuration
 ***********************************
-The minimum configuration file is *config.inc* :
+
+Follow the generic instructions in :ref:`build_installation`. If using CMake directly, add the following flag:
 
 .. code-block:: sh
 
- COMPILE_CORE=1
- COMPILE_SIMULATOR=0
- COMPILE_SPS_IMAGE=1
- COMPILE_ESPIA=0
- COMPILE_FRELON=0
- COMPILE_MAXIPIX=0
- COMPILE_PILATUS=0
- COMPILE_BASLER=0
- COMPILE_PROSILICA=0
- COMPILE_ROPERSCIENTIFIC=0
- COMPILE_MYTHEN=0
- COMPILE_ADSC=0
- COMPILE_UEYE=0
- COMPILE_XH=0
- COMPILE_XSPRESS3=0
- COMPILE_XPAD=0
- COMPILE_PERKINELMER=0
- COMPILE_ANDOR=0
- COMPILE_PHOTONICSCIENCE=0
- COMPILE_PCO=0
- COMPILE_MARCCD=0
- COMPILE_POINTGREY=0
- COMPILE_IMXPAD=0
- COMPILE_DEXELA=1
- COMPILE_RAYONIXHS=0
- COMPILE_CBF_SAVING=0
- COMPILE_NXS_SAVING=0
- COMPILE_FITS_SAVING=0
- COMPILE_EDFGZ_SAVING=0
- COMPILE_TIFF_SAVING=0
- COMPILE_CONFIG=1
- LINK_STRICT_VERSION=0
- export COMPILE_CORE COMPILE_SPS_IMAGE COMPILE_SIMULATOR \
-       COMPILE_ESPIA COMPILE_FRELON COMPILE_MAXIPIX COMPILE_PILATUS \
-       COMPILE_BASLER COMPILE_PROSILICA COMPILE_ROPERSCIENTIFIC COMPILE_ADSC \
-       COMPILE_MYTHEN COMPILE_UEYE COMPILE_XH COMPILE_XSPRESS3 COMPILE_XPAD COMPILE_PERKINELMER \
-       COMPILE_ANDOR COMPILE_PHOTONICSCIENCE COMPILE_PCO COMPILE_MARCCD COMPILE_DEXELA\
-       COMPILE_POINTGREY COMPILE_IMXPAD COMPILE_RAYONIXHS COMPILE_CBF_SAVING COMPILE_NXS_SAVING \
-       COMPILE_FITS_SAVING COMPILE_EDFGZ_SAVING COMPILE_TIFF_SAVING COMPILE_CONFIG\
-       LINK_STRICT_VERSION
+ -DLIMACAMERA_DEXELA=true
 
-See :ref:`Compilation`
+For the Tango server installation, refers to :ref:`tango_installation`.
 
 Initialization and Capabilities
 *******************************
-In order to help people to understand how the camera plugin has been implemented in LImA this section
-provide some important information about the developer's choices.
+
+Implementing a new plugin for new detector is driven by the LIMA framework but the developer has some freedoms to choose which standard and specific features will be made available. This section is supposed to give you the correct information regarding how the camera is exported within the LIMA framework.
 
 Camera initialization
-**********************
+*********************
 
-The camera will be initialized   within the **DexelaInterface**  object.
-The parameter to pass to DexelaInterface constructor is the fill path need for the acquisition card.
+The camera will be initialized within the :cpp:class:`DexelaInterface`  object.
+The parameter to pass to :cpp:func:`DexelaInterface()` constructor is the fill path need for the acquisition card.
 This file is generated by xcap software provided by PIXCI. you can find some example in the config directory.
 
 Std capabilities
 ================
 
-This plugin has been implemented in respect of the mandatory capabilites but with limitations according 
+This plugin has been implemented in respect of the mandatory capabilites but with limitations according
 due to the detector specific features and with some programmer's  choices.  We do not explain here the standard Lima capabilites
 but you can find in this section the useful information on the Dexela specfic features.
 
@@ -146,18 +112,18 @@ The latency time is not manage.
 
 Optional capabilities
 ======================
-In addition to the standard capabilities, we make the choice to implement some optional capabilities in order to 
+In addition to the standard capabilities, we make the choice to implement some optional capabilities in order to
 have an improved simulation.
 
 * HwShutter
 
- There is no shutter capability. 
+ There is no shutter capability.
 
 * HwRoi
 
  There is no hardware capability, but Lima provides the sofware Roi as well.
 
-* HwBin 
+* HwBin
 
  The supported hardware binning factors are 1x1, 2x2, and 4x4.
 
@@ -193,8 +159,8 @@ For a quick test one can use python, is this a short code example:
 
   # now ask for 2 sec. exposure and 10 frames
   acq.setAcqExpoTime(2)
-  acq.setNbImages(10) 
-  
+  acq.setNbImages(10)
+
   ct.prepareAcq()
   ct.startAcq()
 
@@ -203,9 +169,6 @@ For a quick test one can use python, is this a short code example:
   while lastimg !=9:
     time.sleep(1)
     lastimg = ct.getStatus().ImageCounters.LastImageReady
- 
+
   # read the first image
   im0 = ct.ReadImage(0)
-  
-
-  
