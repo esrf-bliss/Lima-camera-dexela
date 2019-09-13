@@ -280,7 +280,7 @@ void Interface::_AcqThread::threadFunction()
 {
   DEB_MEMBER_FUNCT();
 
-  if(pxd_eventCapturedFieldCreate(SINGLE_UNIT,SIGUSR1,RESERVED))
+  if(pxd_eventCapturedFieldCreate(SINGLE_UNIT,SIGUSR1,(void *)RESERVED))
     THROW_HW_ERROR(Error) << "Can't set signal on capture";
 
   StdBufferCbMgr& buffer_mgr = m_interface.m_buffer_ctrl_obj.getBuffer();
