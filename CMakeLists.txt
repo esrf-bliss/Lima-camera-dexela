@@ -1,7 +1,7 @@
 ###########################################################################
 # This file is part of LImA, a Library for Image Acquisition
 #
-#  Copyright (C) : 2009-2017
+#  Copyright (C) : 2009-2019
 #  European Synchrotron Radiation Facility
 #  CS40220 38043 Grenoble Cedex 9
 #  FRANCE
@@ -25,8 +25,6 @@
 cmake_minimum_required(VERSION 3.1)
 
 project(dexela)
-
-set(NAME "dexela")
 
 # Include additional modules that are used inconditionnaly
 include(GNUInstallDirs)
@@ -52,11 +50,13 @@ if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
 endif()
 
 if (CAMERA_MASTER_PROJECT)
-  find_package(Lima REQUIRED)
+  find_package(Lima REQUIRED COMPONENTS devel tools)
 endif()
 
 # CMake additional macros
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${LIMA_CMAKE_INCLUDE_DIRS} ${CMAKE_MODULE_PATH})
+
+include(LimaTools)
 
 # Set version
 include(project_version)
@@ -64,35 +64,15 @@ include(project_version)
 # Enable python binding code compilation using sip generator
 if (CAMERA_MASTER_PROJECT)
   option(LIMA_ENABLE_PYTHON "compile python binding code?" OFF)
-endif()
+  option(LIMA_ENABLE_PYTANGO_SERVER "install python tango server?" OFF)
 
-
-if (LIMA_ENABLE_PYTHON)
-  # Find python interpreter and libs
-  find_package(PythonInterp)
-  find_package(PythonLibs)
-  if(${PYTHONINTERP_FOUND})
-    # python site-packages folder
-    execute_process(
-      COMMAND ${PYTHON_EXECUTABLE} -c "from distutils.sysconfig import get_python_lib; print (get_python_lib())"
-      OUTPUT_VARIABLE _PYTHON_SITE_PACKAGES_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if (LIMA_ENABLE_PYTHON)
+    limatools_find_python_and_sip()
   endif()
-
-  set(PYTHON_SITE_PACKAGES_DIR ${_PYTHON_SITE_PACKAGES_DIR} CACHE PATH "where should python modules be installed?")
-
-  find_package(SIP REQUIRED)
-  include(SIPMacros)
-  if(WIN32)
-    set(SIP_TAGS WIN32_PLATFORM)
-  elseif(UNIX)
-    set(SIP_TAGS POSIX_PLATFORM)
-  endif(WIN32)
-  set(SIP_EXTRA_OPTIONS -e -g)
-
-  find_package(NumPy REQUIRED)
 endif()
 
 find_package(Dexela REQUIRED)
+find_package(GLIB2 REQUIRED)
 
 file(GLOB_RECURSE DEXELA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
 
@@ -114,18 +94,20 @@ set_target_properties(dexela PROPERTIES
   VERSION "${PROJECT_VERSION}"
   SOVERSION "${PACKAGE_VERSION_MAJOR}.${PACKAGE_VERSION_MINOR}")
 
-target_compile_definitions(dexela -DOS_LINUX)
-
 # Add dependencies
 target_include_directories(dexela
-  PUBLIC "$<BUILD_INTERFACE:${EIGER_SDK_ROOT}/linux/EigerAPI/include>"
   PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-  PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tools/src>"
   PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>"           # For export header
   PUBLIC "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
 
-target_link_libraries(dexela PUBLIC ${DEXELA_LIBRARIES} limacore)
+target_link_libraries(dexela PUBLIC ${GLIB2_LIBRARIES} ${DEXELA_LIBRARIES} limacore)
+
+target_compile_definitions(dexela PUBLIC ${DEXELA_DEFINITIONS})
+
+target_include_directories(dexela PUBLIC ${DEXELA_INCLUDE_DIRS})
+
+target_include_directories(dexela PUBLIC ${GLIB2_INCLUDE_DIRS})
 
 if(WIN32)
   target_compile_definitions(dexela
@@ -136,7 +118,6 @@ endif()
 
 # Binding code for python
 if(LIMA_ENABLE_PYTHON)
-  include(LimaTools)
   limatools_run_sip_for_camera(dexela)
 endif()
 
@@ -178,53 +159,14 @@ if(LIMA_ENABLE_PYTHON)
   install(
     DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python/
     DESTINATION "${PYTHON_SITE_PACKAGES_DIR}/Lima/Dexela"
-  )
+    )
+  if (LIMA_ENABLE_PYTANGO_SERVER)
+    add_subdirectory(tango)
+  endif()
 endif()
 
 ## Tests
 if(CAMERA_ENABLE_TESTS)
   enable_testing()
   #add_subdirectory(test)
-endif()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#INCLUDEs
-target_include_directories(lima${NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_include_directories(lima${NAME} PUBLIC "/usr/local/include/dexela")
-target_include_directories(lima${NAME} PUBLIC "/usr/include/glib-2.0")
-target_include_directories(lima${NAME} PUBLIC "/usr/lib/x86_64-linux-gnu/glib-2.0/include")
-target_include_directories(lima${NAME} PUBLIC "${CMAKE_SOURCE_DIR}/../../dexela_lib/libdexela/include")
-
-#LIBRARY
-find_library(DEXELA_LIB dexela)
-if (("${DEXELA_LIB}" STREQUAL "DEXELA_LIB-NOTFOUND"))
-	message(FATAL_ERROR "${NAME} : libdexela not found, you can search it in cmake-gui or try to install it if it isn't here.")
-endif()
-target_link_libraries(lima${NAME} limacore)
-target_link_libraries(lima${NAME} ${DEXELA_LIB})
-
-limatools_set_library_soversion(lima${NAME} "VERSION")
-install(TARGETS lima${NAME} LIBRARY DESTINATION lib)
-
-if(LIMA_ENABLE_PYTHON)
-    limatools_run_sip_for_camera(${NAME})
-    install(FILES python/__init__.py DESTINATION "${PYTHON_SITE_PACKAGES_DIR}/Lima/Dexela")
 endif()
