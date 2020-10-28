@@ -19,6 +19,7 @@ build:
 requirements:
   build:
     - cmake
+    - make
     - git
     - lima-core
   run:
