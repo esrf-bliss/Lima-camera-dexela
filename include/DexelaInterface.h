@@ -59,8 +59,8 @@ namespace lima
       void setFullWellMode(wellMode);
       wellMode getFullWellMode() const;
 
-      void setSkipFirstFrame(bool);
-      bool getSkipFirstFrame() const;
+      void setSkipFirstFrame(bool flag) {m_skip_first_frame = flag;};
+      bool getSkipFirstFrame() const {return m_skip_first_frame;};
 
     private:
       _AcqThread*		m_acq_thread;

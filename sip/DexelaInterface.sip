@@ -45,5 +45,7 @@ namespace Dexela
     //Specific
     void setFullWellMode(wellMode);
     Dexela::Interface::wellMode getFullWellMode() const;
+    void setSkipFirstFrame(bool flag);
+    bool getSkipFirstFrame() const;
   };
 };

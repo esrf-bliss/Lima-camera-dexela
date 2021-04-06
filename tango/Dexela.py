@@ -122,7 +122,16 @@ class DexelaClass(PyTango.DeviceClass):
          [PyTango.DevVarStringArray, "Authorized String value list"]],
         }
 
-    attr_list = {}
+    attr_list = {
+        'skip_first_frame':
+        [[PyTango.DevString,
+          PyTango.SCALAR,
+          PyTango.READ_WRITE]],
+        'full_well_mode':
+        [[PyTango.DevString,
+          PyTango.SCALAR,
+          PyTango.READ_WRITE]],
+    }
 
     def __init__(self,name) :
         PyTango.DeviceClass.__init__(self,name)
